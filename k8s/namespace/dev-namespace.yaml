@@ -1,0 +1,11 @@
+# ============================================================
+# Namespace DEV — village-dev
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: village-dev
+  labels:
+    environment: dev
+    project: village
+    managed-by: kubectl

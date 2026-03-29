@@ -1,0 +1,24 @@
+# ============================================================
+# Service — Frontend Angular (DEV)
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: village-frontend-svc
+  namespace: village-dev
+  labels:
+    app: village-frontend
+    environment: dev
+    project: village
+spec:
+  selector:
+    app: village-frontend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+      # NodePort pour accès direct au cluster (développement local)
+      nodePort: 30080
+  # NodePort pour tester sans Ingress (dev) — utiliser ClusterIP en prod
+  type: NodePort

@@ -1,0 +1,21 @@
+# ============================================================
+# ConfigMap — Frontend Angular (DEV)
+# Variables d'environnement pour le conteneur frontend
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: village-dev
+  labels:
+    app: village-frontend
+    environment: dev
+    project: village
+data:
+  # URL de l'API backend (accessible via le Service ClusterIP)
+  API_URL: "http://village-backend-svc:8080"
+  ENVIRONMENT: "dev"
+  APP_TITLE: "Village App - DEV"
+  # Configuration Nginx — proxy vers le backend
+  NGINX_BACKEND_HOST: "village-backend-svc"
+  NGINX_BACKEND_PORT: "8080"

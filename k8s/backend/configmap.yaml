@@ -1,0 +1,32 @@
+# ============================================================
+# ConfigMap — Backend Spring Boot (DEV)
+# Variables d'environnement non-sensibles
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: village-dev
+  labels:
+    app: village-backend
+    environment: dev
+    project: village
+data:
+  # Profil Spring Boot
+  SPRING_PROFILES_ACTIVE: "dev"
+  SERVER_PORT: "8080"
+  # Base de données PostgreSQL
+  DB_HOST: "village-postgres-svc"
+  DB_PORT: "5432"
+  DB_NAME: "villagedb"
+  DB_USER: "village"
+  # Configuration du pool de connexions
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "10"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "2"
+  # Actuator (health checks pour Kubernetes probes)
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics"
+  MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+  # Logging
+  LOGGING_LEVEL_ROOT: "INFO"
+  LOGGING_LEVEL_COM_VILLAGE: "DEBUG"

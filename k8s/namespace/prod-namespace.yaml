@@ -1,0 +1,27 @@
+# ============================================================
+# Namespace PROD — village-prod
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: village-prod
+  labels:
+    environment: prod
+    project: village
+    managed-by: kubectl
+---
+# ResourceQuota pour limiter les ressources en production
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: village-prod-quota
+  namespace: village-prod
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "30"
+    services: "10"
+    persistentvolumeclaims: "5"

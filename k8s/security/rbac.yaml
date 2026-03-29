@@ -1,0 +1,79 @@
+# ============================================================
+# RBAC — Role-Based Access Control
+# Village Application (DEV)
+# ============================================================
+
+# ── Role pour le backend (lecture des ConfigMaps) ─────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: village-backend-role
+  namespace: village-dev
+  labels:
+    app: village-backend
+    project: village
+rules:
+  # Lecture des ConfigMaps (pour la configuration)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # Lecture des Secrets (uniquement pour les secrets liés à l'app)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["backend-secret"]
+    verbs: ["get"]
+
+---
+# ── RoleBinding backend ────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: village-backend-rolebinding
+  namespace: village-dev
+  labels:
+    app: village-backend
+    project: village
+subjects:
+  - kind: ServiceAccount
+    name: village-backend-sa
+    namespace: village-dev
+roleRef:
+  kind: Role
+  name: village-backend-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ── Role pour le frontend (lecture seule) ─────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: village-frontend-role
+  namespace: village-dev
+  labels:
+    app: village-frontend
+    project: village
+rules:
+  # Lecture des ConfigMaps uniquement
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["frontend-config"]
+    verbs: ["get"]
+
+---
+# ── RoleBinding frontend ───────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: village-frontend-rolebinding
+  namespace: village-dev
+  labels:
+    app: village-frontend
+    project: village
+subjects:
+  - kind: ServiceAccount
+    name: village-frontend-sa
+    namespace: village-dev
+roleRef:
+  kind: Role
+  name: village-frontend-role
+  apiGroup: rbac.authorization.k8s.io

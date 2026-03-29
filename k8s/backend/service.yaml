@@ -1,0 +1,46 @@
+# ============================================================
+# Service — Backend Spring Boot (DEV)
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: village-backend-svc
+  namespace: village-dev
+  labels:
+    app: village-backend
+    environment: dev
+    project: village
+spec:
+  selector:
+    app: village-backend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+      # NodePort pour accès direct (développement)
+      nodePort: 30081
+  type: NodePort
+---
+# ============================================================
+# Service — PostgreSQL (DEV)
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: village-postgres-svc
+  namespace: village-dev
+  labels:
+    app: postgres
+    environment: dev
+    project: village
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+  # ClusterIP — base de données accessible uniquement en interne
+  type: ClusterIP

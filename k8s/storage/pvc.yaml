@@ -1,0 +1,104 @@
+# ============================================================
+# PersistentVolumeClaim — PostgreSQL (DEV)
+# Demande de stockage pour le pod PostgreSQL
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: village-postgres-pvc
+  namespace: village-dev
+  labels:
+    app: postgres
+    project: village
+    environment: dev
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+# ============================================================
+# Deployment — PostgreSQL (DEV)
+# Base de données avec stockage persistant
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: village-postgres
+  namespace: village-dev
+  labels:
+    app: postgres
+    environment: dev
+    project: village
+spec:
+  replicas: 1
+  # PostgreSQL ne supporte pas ReadWriteMany, donc replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        environment: dev
+        project: village
+    spec:
+      securityContext:
+        runAsUser: 999   # postgres user
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: villagedb
+            - name: POSTGRES_USER
+              value: village
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - village
+                - -d
+                - villagedb
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - village
+                - -d
+                - villagedb
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgres-storage
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: village-postgres-pvc

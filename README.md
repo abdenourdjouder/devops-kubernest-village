@@ -150,7 +150,7 @@
 ## 📁 Structure du repository
 
 ```
-devops-kubernest-village/
+devops-kubernetes-village/
 ├── README.md                          # Ce fichier — plan du projet
 ├── docs/                              # Documentation détaillée par étape
 │   ├── step-01-work-plan.md
@@ -219,7 +219,7 @@ devops-kubernest-village/
 ### 1. Cloner les projets
 ```bash
 # Ce repository (DevOps)
-git clone https://github.com/abdenourdjouder/devops-kubernest-village.git
+git clone https://github.com/abdenourdjouder/devops-kubernetes-village.git
 
 # Application source
 git clone https://github.com/abdenourdjouder/village.git

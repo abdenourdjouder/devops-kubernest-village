@@ -1,4 +1,4 @@
-# 🚀 DevOps KuberNest Village — Kubernetes Portfolio Project
+# 🚀 DevOps Kubernetes Village — Kubernetes Portfolio Project
 
 > **Projet éducatif** : Déploiement d'une application Angular + Spring Boot sur Kubernetes, en corrélation avec la certification **CKA (Certified Kubernetes Administrator)**.
 > Application source : [village](https://github.com/abdenourdjouder/village)

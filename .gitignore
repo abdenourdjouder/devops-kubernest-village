@@ -1,0 +1,47 @@
+# ============================================================
+# .gitignore — Village DevOps Project
+# ============================================================
+
+# Secrets and credentials — NEVER commit these
+.env
+.env.*
+!.env.example
+*.kubeconfig
+kubeconfig
+*.pem
+*.key
+*.crt
+*.p12
+
+# Kubernetes secrets files (actual Secret manifests with real values)
+k8s/**/secret-values.yaml
+k8s/**/*-secret-real.yaml
+
+# Build artifacts
+dist/
+build/
+target/
+*.jar
+*.war
+node_modules/
+
+# Docker
+.docker/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/

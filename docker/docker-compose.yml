@@ -1,0 +1,104 @@
+version: "3.9"
+
+# ============================================================
+# Docker Compose pour le développement local
+# Application Village: Angular + Spring Boot + PostgreSQL
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────────
+  # Frontend — Angular (via Nginx)
+  # ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../../village/frontend   # Chemin relatif vers le code source Angular
+      dockerfile: ../../devops-kubernest-village/docker/frontend/Dockerfile
+    container_name: village-frontend
+    ports:
+      - "4200:80"
+    environment:
+      - NGINX_HOST=localhost
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - village-network
+    restart: unless-stopped
+    labels:
+      - "project=village"
+      - "service=frontend"
+
+  # ──────────────────────────────────────────────
+  # Backend — Spring Boot
+  # ──────────────────────────────────────────────
+  backend:
+    build:
+      context: ../../village/backend    # Chemin relatif vers le code source Spring Boot
+      dockerfile: ../../devops-kubernest-village/docker/backend/Dockerfile
+    container_name: village-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/villagedb
+      - SPRING_DATASOURCE_USERNAME=village
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-village123}
+      - SERVER_PORT=8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - village-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "project=village"
+      - "service=backend"
+
+  # ──────────────────────────────────────────────
+  # Base de données — PostgreSQL
+  # ──────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: village-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=villagedb
+      - POSTGRES_USER=village
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-village123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - village-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U village -d villagedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      - "project=village"
+      - "service=database"
+
+# ──────────────────────────────────────────────
+# Volumes persistants
+# ──────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+
+# ──────────────────────────────────────────────
+# Réseau interne
+# ──────────────────────────────────────────────
+networks:
+  village-network:
+    driver: bridge
+    name: village-network

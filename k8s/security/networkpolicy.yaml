@@ -1,0 +1,101 @@
+# ============================================================
+# NetworkPolicy — Village Application (DEV)
+# Contrôle du trafic réseau entre les pods
+# ============================================================
+
+# ── Politique : Backend accepte seulement le trafic du frontend ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-frontend-only
+  namespace: village-dev
+  labels:
+    project: village
+spec:
+  # Appliqué aux pods du backend
+  podSelector:
+    matchLabels:
+      app: village-backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Autoriser le frontend à appeler le backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: village-frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Autoriser les health checks depuis le kubelet
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Autoriser le backend à appeler la base de données
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Autoriser la résolution DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ── Politique : PostgreSQL accepte seulement le trafic du backend ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-allow-backend-only
+  namespace: village-dev
+  labels:
+    project: village
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    # Autoriser uniquement le backend à se connecter à PostgreSQL
+    - from:
+        - podSelector:
+            matchLabels:
+              app: village-backend
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# ── Politique : Frontend accepte le trafic depuis Ingress ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-allow-ingress
+  namespace: village-dev
+  labels:
+    project: village
+spec:
+  podSelector:
+    matchLabels:
+      app: village-frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Autoriser le trafic depuis le namespace nginx-ingress
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80

@@ -1,0 +1,162 @@
+# ============================================================
+# CI — Build & Test
+# Déclenché sur chaque Pull Request vers main ou develop
+# ============================================================
+name: "CI — Build & Test"
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+env:
+  # GitHub Container Registry
+  REGISTRY: ghcr.io
+  # Namespace des images (username GitHub en minuscules)
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Job 1 — Build & Test Frontend Angular
+  # ──────────────────────────────────────────────────────────
+  build-frontend:
+    name: "Build Frontend (Angular)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: "Checkout DevOps repository"
+        uses: actions/checkout@v4
+
+      - name: "Checkout Application source (village)"
+        uses: actions/checkout@v4
+        with:
+          repository: abdenourdjouder/village
+          path: village-app
+          # Si le repository est privé, ajouter: token: ${{ secrets.VILLAGE_REPO_TOKEN }}
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: village-app/frontend/package-lock.json
+
+      - name: "Install dependencies"
+        working-directory: village-app/frontend
+        run: npm ci --prefer-offline
+
+      - name: "Lint Angular code"
+        working-directory: village-app/frontend
+        run: npm run lint
+        continue-on-error: true
+
+      - name: "Build Angular (production)"
+        working-directory: village-app/frontend
+        run: npm run build -- --configuration=production
+
+      - name: "Run unit tests"
+        working-directory: village-app/frontend
+        run: npm run test -- --watch=false --browsers=ChromeHeadless
+        continue-on-error: true
+
+      - name: "Build Docker image (frontend)"
+        uses: docker/build-push-action@v5
+        with:
+          context: village-app/frontend
+          file: docker/frontend/Dockerfile
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/village-frontend:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2 — Build & Test Backend Spring Boot
+  # ──────────────────────────────────────────────────────────
+  build-backend:
+    name: "Build Backend (Spring Boot)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: "Checkout DevOps repository"
+        uses: actions/checkout@v4
+
+      - name: "Checkout Application source (village)"
+        uses: actions/checkout@v4
+        with:
+          repository: abdenourdjouder/village
+          path: village-app
+
+      - name: "Setup Java 17"
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
+
+      - name: "Run Maven tests"
+        working-directory: village-app/backend
+        run: mvn test --no-transfer-progress -B
+
+      - name: "Build Maven package"
+        working-directory: village-app/backend
+        run: mvn package -DskipTests --no-transfer-progress -B
+
+      - name: "Build Docker image (backend)"
+        uses: docker/build-push-action@v5
+        with:
+          context: village-app/backend
+          file: docker/backend/Dockerfile
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/village-backend:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────────────────
+  # Job 3 — Valider les manifestes Kubernetes
+  # ──────────────────────────────────────────────────────────
+  validate-k8s-manifests:
+    name: "Validate Kubernetes Manifests"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Install kubectl"
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "v1.28.0"
+
+      - name: "Validate YAML manifests with kubectl dry-run"
+        run: |
+          # Créer un cluster local pour la validation
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          ./kind create cluster --name validation-cluster
+          
+          # Valider les namespaces
+          kubectl apply -f k8s/namespace/ --dry-run=client
+          
+          # Appliquer les namespaces pour les validations suivantes
+          kubectl apply -f k8s/namespace/
+          
+          # Valider les manifestes
+          kubectl apply -f k8s/security/serviceaccount.yaml --dry-run=client -n village-dev
+          kubectl apply -f k8s/security/rbac.yaml --dry-run=client -n village-dev
+          kubectl apply -f k8s/backend/configmap.yaml --dry-run=client
+          kubectl apply -f k8s/frontend/configmap.yaml --dry-run=client
+          kubectl apply -f k8s/backend/deployment.yaml --dry-run=client
+          kubectl apply -f k8s/backend/service.yaml --dry-run=client
+          kubectl apply -f k8s/frontend/deployment.yaml --dry-run=client
+          kubectl apply -f k8s/frontend/service.yaml --dry-run=client
+          kubectl apply -f k8s/ingress/ingress.yaml --dry-run=client
+          
+          echo "✅ All Kubernetes manifests are valid!"

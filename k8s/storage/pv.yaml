@@ -1,0 +1,25 @@
+# ============================================================
+# PersistentVolume — PostgreSQL (DEV)
+# Stockage local pour les données de la base de données
+# ============================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: village-postgres-pv
+  labels:
+    type: local
+    app: postgres
+    project: village
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  # Conserver les données même si le PVC est supprimé (reclaim policy)
+  persistentVolumeReclaimPolicy: Retain
+  # Stockage local sur le noeud (pour dev/test uniquement)
+  # En production, utiliser un StorageClass dynamique (AWS EBS, GCP PD, etc.)
+  hostPath:
+    path: "/mnt/data/village-postgres"
+    type: DirectoryOrCreate

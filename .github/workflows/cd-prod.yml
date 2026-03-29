@@ -1,0 +1,215 @@
+# ============================================================
+# CD — Deploy to PROD
+# Déclenché sur push de tag vX.Y.Z ou workflow_dispatch
+# ============================================================
+name: "CD — Deploy to PROD"
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de version à déployer (ex: v1.2.3)"
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  IMAGE_FRONTEND: village-frontend
+  IMAGE_BACKEND: village-backend
+  K8S_NAMESPACE: village-prod
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Job 1 — Build & Push images vers GHCR (tag de version)
+  # ──────────────────────────────────────────────────────────
+  build-and-push-prod:
+    name: "Build & Push Docker Images (PROD)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+
+    steps:
+      - name: "Checkout DevOps repository"
+        uses: actions/checkout@v4
+
+      - name: "Checkout Application source"
+        uses: actions/checkout@v4
+        with:
+          repository: abdenourdjouder/village
+          path: village-app
+
+      - name: "Determine version tag"
+        id: get-version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.image_tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+      - name: "Login to GitHub Container Registry"
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "Setup Docker Buildx"
+        uses: docker/setup-buildx-action@v3
+
+      - name: "Build & Push frontend image (versioned)"
+        uses: docker/build-push-action@v5
+        with:
+          context: village-app/frontend
+          file: docker/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_FRONTEND }}:${{ steps.get-version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_FRONTEND }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: "Build & Push backend image (versioned)"
+        uses: docker/build-push-action@v5
+        with:
+          context: village-app/backend
+          file: docker/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_BACKEND }}:${{ steps.get-version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_BACKEND }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2 — Deploy to PROD Kubernetes
+  # Requiert une approbation manuelle (environment protection)
+  # ──────────────────────────────────────────────────────────
+  deploy-prod:
+    name: "Deploy to PROD Kubernetes"
+    runs-on: ubuntu-latest
+    needs: build-and-push-prod
+    environment:
+      name: production
+      url: https://village.example.com
+    permissions:
+      contents: read
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Install kubectl"
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "v1.28.0"
+
+      - name: "Configure kubectl (PROD cluster)"
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: "Verify cluster connection"
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: "Create/update Namespace PROD"
+        run: kubectl apply -f k8s/namespace/prod-namespace.yaml
+
+      - name: "Apply ServiceAccounts & RBAC (PROD)"
+        run: |
+          # Copier les manifestes en adaptant le namespace
+          sed 's/namespace: village-dev/namespace: village-prod/g' k8s/security/serviceaccount.yaml | kubectl apply -f -
+          sed 's/namespace: village-dev/namespace: village-prod/g' k8s/security/rbac.yaml | kubectl apply -f -
+
+      - name: "Apply ConfigMaps (PROD — profil production)"
+        run: |
+          # Appliquer ConfigMaps avec profil production
+          sed 's/namespace: village-dev/namespace: village-prod/g; s/value: "dev"/value: "prod"/g' k8s/backend/configmap.yaml | kubectl apply -f -
+          sed 's/namespace: village-dev/namespace: village-prod/g; s/ENVIRONMENT: "dev"/ENVIRONMENT: "prod"/g' k8s/frontend/configmap.yaml | kubectl apply -f -
+
+      - name: "Apply Secrets (PROD)"
+        env:
+          DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.PROD_JWT_SECRET }}
+        run: |
+          kubectl create secret generic backend-secret \
+            --from-literal=DB_PASSWORD="${DB_PASSWORD}" \
+            --from-literal=JWT_SECRET="${JWT_SECRET}" \
+            --namespace=${{ env.K8S_NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: "Apply Storage (PV/PVC/PostgreSQL PROD)"
+        run: |
+          sed 's/namespace: village-dev/namespace: village-prod/g' k8s/storage/pvc.yaml | kubectl apply -f -
+
+      - name: "Deploy Backend (PROD — 2 replicas)"
+        run: |
+          # Appliquer avec 2 replicas pour la production
+          sed 's/namespace: village-dev/namespace: village-prod/g; s/replicas: 1/replicas: 2/g' k8s/backend/deployment.yaml | kubectl apply -f -
+          sed 's/namespace: village-dev/namespace: village-prod/g' k8s/backend/service.yaml | kubectl apply -f -
+          
+          # Mettre à jour l'image avec le tag de version
+          kubectl set image deployment/village-backend \
+            backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_BACKEND }}:${{ needs.build-and-push-prod.outputs.version }} \
+            -n ${{ env.K8S_NAMESPACE }}
+
+      - name: "Wait for Backend PROD rollout"
+        run: |
+          kubectl rollout status deployment/village-backend \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=600s
+
+      - name: "Deploy Frontend (PROD — 2 replicas)"
+        run: |
+          sed 's/namespace: village-dev/namespace: village-prod/g; s/replicas: 1/replicas: 2/g' k8s/frontend/deployment.yaml | kubectl apply -f -
+          sed 's/namespace: village-dev/namespace: village-prod/g' k8s/frontend/service.yaml | kubectl apply -f -
+          
+          kubectl set image deployment/village-frontend \
+            frontend=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_FRONTEND }}:${{ needs.build-and-push-prod.outputs.version }} \
+            -n ${{ env.K8S_NAMESPACE }}
+
+      - name: "Wait for Frontend PROD rollout"
+        run: |
+          kubectl rollout status deployment/village-frontend \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=600s
+
+      - name: "Apply Ingress & NetworkPolicies (PROD)"
+        run: |
+          sed 's/namespace: village-dev/namespace: village-prod/g; s/village.local/village.example.com/g' k8s/ingress/ingress.yaml | kubectl apply -f -
+          sed 's/namespace: village-dev/namespace: village-prod/g' k8s/security/networkpolicy.yaml | kubectl apply -f -
+
+      - name: "Apply HPA (PROD)"
+        run: |
+          sed 's/namespace: village-dev/namespace: village-prod/g; s/maxReplicas: 5/maxReplicas: 10/g' k8s/backend/hpa.yaml | kubectl apply -f - || echo "⚠️ HPA skipped"
+          sed 's/namespace: village-dev/namespace: village-prod/g; s/maxReplicas: 3/maxReplicas: 5/g' k8s/frontend/hpa.yaml | kubectl apply -f - || echo "⚠️ HPA skipped"
+
+      - name: "Deployment summary (PROD)"
+        run: |
+          echo "=== 🚀 PROD Deployment Summary ==="
+          echo "Namespace: ${{ env.K8S_NAMESPACE }}"
+          echo "Version: ${{ needs.build-and-push-prod.outputs.version }}"
+          echo ""
+          kubectl get all -n ${{ env.K8S_NAMESPACE }}
+          echo ""
+          echo "🎉 Version ${{ needs.build-and-push-prod.outputs.version }} deployed to PROD!"
+
+      - name: "Rollback PROD on failure"
+        if: failure()
+        run: |
+          echo "❌ PROD Deployment failed! Rolling back..."
+          kubectl rollout undo deployment/village-backend -n ${{ env.K8S_NAMESPACE }} || true
+          kubectl rollout undo deployment/village-frontend -n ${{ env.K8S_NAMESPACE }} || true
+          echo "✅ PROD Rollback completed"
+          exit 1

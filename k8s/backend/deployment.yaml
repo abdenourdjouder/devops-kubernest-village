@@ -1,0 +1,121 @@
+# ============================================================
+# Deployment — Backend Spring Boot (DEV)
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: village-backend
+  namespace: village-dev
+  labels:
+    app: village-backend
+    environment: dev
+    project: village
+  annotations:
+    kubernetes.io/change-cause: "Initial deployment"
+spec:
+  replicas: 1
+  # Stratégie de rolling update sans downtime
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: village-backend
+  template:
+    metadata:
+      labels:
+        app: village-backend
+        environment: dev
+        project: village
+    spec:
+      # ServiceAccount dédié (créé dans k8s/security/)
+      serviceAccountName: village-backend-sa
+      # Empêcher l'exécution en root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: backend
+          # Remplacer <username> par votre nom d'utilisateur GitHub
+          image: ghcr.io/abdenourdjouder/village-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          # Variables depuis ConfigMap (non-sensibles)
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          # Variables depuis Secret (sensibles)
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: DB_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_SECRET
+          # Ressources CPU/Mémoire
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          # Startup Probe — attendre que Spring Boot démarre
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 10
+            initialDelaySeconds: 10
+          # Liveness Probe — le conteneur est-il vivant ?
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          # Readiness Probe — le conteneur est-il prêt ?
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          # Sécurité du conteneur
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Volume pour les fichiers temporaires (nécessaire avec readOnlyRootFilesystem)
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+      # Attendre 10s avant le prochain pod (rolling update)
+      minReadySeconds: 10
+      # Termination graceful
+      terminationGracePeriodSeconds: 60
